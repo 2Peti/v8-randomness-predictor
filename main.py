@@ -30,6 +30,24 @@ sequence = [
 ]
 
 """
+Extract mantissa
+- Add `1.0` (+ 0x3FF0000000000000) to 52 bits
+- Get the double and Subtract `1` to obtain the random number between [0, 1)
+
+> https://github.com/v8/v8/blob/a9f802859bc31e57037b7c293ce8008542ca03d8/src/base/utils/random-number-generator.h#L111
+
+static inline double ToDouble(uint64_t state0) {
+    // Exponent for double values for [1.0 .. 2.0)
+    static const uint64_t kExponentBits = uint64_t{0x3FF0000000000000};
+    uint64_t random = (state0 >> 12) | kExponentBits;
+    return base::bit_cast<double>(random) - 1;
+}
+"""
+def to_double(value):
+    double_bits = (value >> 12) | 0x3FF0000000000000
+    return struct.unpack('d', struct.pack('<Q', double_bits))[0] - 1
+
+"""
 Random numbers generated from xorshift128+ is used to fill an internal entropy pool of size 64
 > https://github.com/v8/v8/blob/7a4a6cc6a85650ee91344d0dbd2c53a8fa8dce04/src/numbers/math-random.cc#L35
 
@@ -114,26 +132,18 @@ if solver.check() == z3.sat:
         states[state.__str__()] = model[state]
 
     print(states)
-
+        
     state0 = states["se_state0"].as_long()
-
-    """
-    Extract mantissa
-    - Add `1.0` (+ 0x3FF0000000000000) to 52 bits
-    - Get the double and Subtract `1` to obtain the random number between [0, 1)
-
-    > https://github.com/v8/v8/blob/a9f802859bc31e57037b7c293ce8008542ca03d8/src/base/utils/random-number-generator.h#L111
-
-    static inline double ToDouble(uint64_t state0) {
-        // Exponent for double values for [1.0 .. 2.0)
-        static const uint64_t kExponentBits = uint64_t{0x3FF0000000000000};
-        uint64_t random = (state0 >> 12) | kExponentBits;
-        return base::bit_cast<double>(random) - 1;
-    }
-    """
-    u_long_long_64 = (state0 >> 12) | 0x3FF0000000000000
-    float_64 = struct.pack("<Q", u_long_long_64)
-    next_sequence = struct.unpack("d", float_64)[0]
-    next_sequence -= 1
-
-    print(next_sequence)
+    state1 = states["se_state1"].as_long()
+    
+    print(to_double(state0))
+    for i in range(14):
+        prev_state1 = state0
+        prev_state0 = state1 ^ (state0 >> 26)
+        prev_state0 = prev_state0 ^ state0
+        prev_state0 = prev_state0 ^ (prev_state0 >> 17) ^ (prev_state0 >> 34) ^ (prev_state0 >> 51)
+        prev_state0 = (prev_state0 ^ (prev_state0 << 23) ^ (prev_state0 << 46)) & 0xFFFFFFFFFFFFFFFF
+        
+        state0 = prev_state0
+        state1 = prev_state1
+        print(to_double(prev_state0))
